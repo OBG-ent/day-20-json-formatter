@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JSON Formatter — Day 20</title>
+<style>
+  /* ---- Theme ---- */
+  :root {
+    --bg: #0d0d0d;
+    --panel: #161616;
+    --gold: #e8b53a;
+    --text: #f2f2f2;
+    --muted: #9a9a9a;
+    --border: #2a2a2a;
+    --key: #e8b53a;
+    --string: #7ee787;
+    --number: #79c0ff;
+    --bool: #ffa657;
+    --null: #ff7b72;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    padding: 2rem 1rem;
+  }
+  .wrap { width: 100%; max-width: 960px; }
+
+  header { text-align: center; margin-bottom: 1.5rem; }
+  header h1 { color: var(--gold); font-size: 2rem; margin-bottom: .4rem; }
+  header p { color: var(--muted); }
+  header .day { display: inline-block; margin-top: .5rem; font-size: .8rem;
+    border: 1px solid var(--gold); color: var(--gold); border-radius: 999px;
+    padding: .2rem .8rem; }
+
+  /* ---- Buttons ---- */
+  .toolbar { display: flex; gap: .6rem; flex-wrap: wrap; margin-bottom: 1rem; }
+  button {
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: .6rem 1.1rem;
+    font-size: .95rem;
+    cursor: pointer;
+    transition: transform .1s, border-color .1s;
+  }
+  button:hover { border-color: var(--gold); transform: translateY(-1px); }
+  button.primary { background: var(--gold); color: #111; font-weight: 700; border: none; }
+
+  /* ---- Panes ---- */
+  .panes { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  @media (max-width: 720px) { .panes { grid-template-columns: 1fr; } }
+  .pane label { display: block; color: var(--muted); font-size: .85rem; margin-bottom: .4rem; }
+  textarea, pre {
+    width: 100%;
+    height: 380px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem;
+    color: var(--text);
+    font-family: "SF Mono", Consolas, "Courier New", monospace;
+    font-size: .9rem;
+    line-height: 1.5;
+    overflow: auto;
+    white-space: pre;
+  }
+  textarea:focus { outline: 2px solid var(--gold); }
+  textarea::placeholder { color: #555; }
+
+  /* ---- Syntax colors ---- */
+  .key { color: var(--key); }
+  .string { color: var(--string); }
+  .number { color: var(--number); }
+  .bool { color: var(--bool); }
+  .null { color: var(--null); }
+
+  /* ---- Status, errors ---- */
+  #stats { margin-top: .8rem; color: var(--muted); font-size: .9rem; min-height: 1.4em; }
+  #error {
+    display: none;
+    margin-top: .8rem;
+    background: #2a1214;
+    border: 1px solid var(--null);
+    color: var(--null);
+    border-radius: 8px;
+    padding: .8rem 1rem;
+    font-size: .9rem;
+  }
+  footer { margin-top: 2rem; text-align: center; color: var(--muted); font-size: .8rem; }
+  footer kbd { background: var(--panel); border: 1px solid var(--border);
+    border-radius: 4px; padding: .1rem .4rem; font-size: .75rem; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>{ } JSON Formatter</h1>
+      <p>Paste ugly JSON. Get pretty, highlighted JSON. Zero installs.</p>
+      <span class="day">Day 20 · simple build</span>
+    </header>
+
+    <div class="toolbar">
+      <button class="primary" id="btn-format">✨ Format</button>
+      <button id="btn-minify">Minify</button>
+      <button id="btn-sample">Load sample</button>
+      <button id="btn-clear">Clear</button>
+      <button id="btn-copy">📋 Copy output</button>
+    </div>
+
+    <div class="panes">
+      <div class="pane">
+        <label for="input">Input JSON</label>
+        <textarea id="input" placeholder='Paste your JSON here, e.g. {"name":"Ada","skills":["math","code"]}' spellcheck="false"></textarea>
+      </div>
+      <div class="pane">
+        <label>Formatted output</label>
+        <pre id="output"><span style="color:#555">Your pretty JSON appears here…</span></pre>
+      </div>
+    </div>
+
+    <div id="error"></div>
+    <div id="stats"></div>
+
+    <footer>
+      Tip: press <kbd>Ctrl</kbd> + <kbd>Enter</kbd> to format ·
+      Built as Day 20 of a daily coding streak
+    </footer>
+  </div>
+
+<script>
+  // Grab the elements we will work with.
+  const input = document.getElementById('input');
+  const output = document.getElementById('output');
+  const errorBox = document.getElementById('error');
+  const stats = document.getElementById('stats');
+
+  // Show an error message in the red box.
+  function showError(message) {
+    errorBox.textContent = message;
+    errorBox.style.display = 'block';
+    stats.textContent = '';
+  }
+
+  // Hide the error box again.
+  function hideError() {
+    errorBox.style.display = 'none';
+  }
+
+  // Recursively count every key in an object (arrays count their items too).
+  function countKeys(value) {
+    if (Array.isArray(value)) {
+      return value.reduce((sum, item) => sum + countKeys(item), 0);
+    }
+    if (value !== null && typeof value === 'object') {
+      return Object.keys(value).length +
+        Object.values(value).reduce((sum, v) => sum + countKeys(v), 0);
+    }
+    return 0;
+  }
+
+  // Turn a pretty-printed JSON string into color-coded HTML.
+  // We escape HTML first so user content can never break the page,
+  // then wrap each token (key, string, number, boolean, null) in a span.
+  function syntaxHighlight(json) {
+    const escaped = json
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    return escaped.replace(
+      /("(\\u[a-f0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g,
+      function (match) {
+        let cls = 'number';
+        if (/^"/.test(match)) {
+          cls = /:$/.test(match) ? 'key' : 'string'; // "name": -> key, "Ada" -> string
+        } else if (/true|false/.test(match)) {
+          cls = 'bool';
+        } else if (/null/.test(match)) {
+          cls = 'null';
+        }
+        return '<span class="' + cls + '">' + match + '</span>';
+      }
+    );
+  }
+
+  // Parse the input once; returns the parsed value or shows an error.
+  function parseInput() {
+    const raw = input.value.trim();
+    if (!raw) {
+      showError('Nothing to format — paste some JSON first.');
+      return null;
+    }
+    try {
+      hideError();
+      return { value: JSON.parse(raw), raw };
+    } catch (e) {
+      showError('Invalid JSON: ' + e.message);
+      return null;
+    }
+  }
+
+  // FORMAT button: pretty-print with 2-space indent + colors.
+  function formatJSON() {
+    const parsed = parseInput();
+    if (!parsed) return;
+    const pretty = JSON.stringify(parsed.value, null, 2);
+    output.innerHTML = syntaxHighlight(pretty);
+    const keys = countKeys(parsed.value);
+    stats.textContent = '✔ Valid JSON · ' + keys + ' key' + (keys === 1 ? '' : 's') +
+      ' · ' + parsed.raw.length + ' → ' + pretty.length + ' characters';
+  }
+
+  // MINIFY button: squeeze everything onto one line (great for APIs).
+  function minifyJSON() {
+    const parsed = parseInput();
+    if (!parsed) return;
+    const min = JSON.stringify(parsed.value);
+    output.textContent = min; // plain text, no highlighting needed
+    stats.textContent = '✔ Minified · ' + parsed.raw.length + ' → ' + min.length +
+      ' characters (' + Math.round((1 - min.length / parsed.raw.length) * 100) + '% smaller)';
+  }
+
+  // A realistic nested object so people can try it instantly.
+  const SAMPLE = {
+    name: 'Ada Lovelace',
+    role: 'developer',
+    active: true,
+    score: 99.5,
+    mentor: null,
+    skills: ['algorithms', 'debugging', 'documentation'],
+    address: { city: 'Toronto', country: 'Canada', postal: 'M4X 1K5' }
+  };
+
+  // Wire up every button.
+  document.getElementById('btn-format').addEventListener('click', formatJSON);
+  document.getElementById('btn-minify').addEventListener('click', minifyJSON);
+  document.getElementById('btn-sample').addEventListener('click', () => {
+    hideError();
+    input.value = JSON.stringify(SAMPLE);
+    formatJSON(); // format it right away so the sample shows off the colors
+  });
+  document.getElementById('btn-clear').addEventListener('click', () => {
+    input.value = '';
+    output.innerHTML = '<span style="color:#555">Your pretty JSON appears here…</span>';
+    hideError();
+    stats.textContent = '';
+    input.focus();
+  });
+  document.getElementById('btn-copy').addEventListener('click', async () => {
+    const text = output.textContent;
+    if (!text || text.includes('Your pretty JSON appears here')) {
+      showError('Nothing to copy yet — format something first.');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      stats.textContent = '📋 Copied to clipboard!';
+    } catch (e) {
+      showError('Could not copy — your browser blocked clipboard access.');
+    }
+  });
+
+  // Ctrl/Cmd + Enter formats from anywhere on the page.
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') formatJSON();
+  });
+</script>
+</body>
+</html>
